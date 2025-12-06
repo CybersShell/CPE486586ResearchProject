@@ -1,0 +1,30 @@
+Evaluating Random Forest model on test set...
+Used Random Forest Classifier with the following parameters:
+RandomForestClassifier(class_weight='balanced', min_samples_leaf=5,
+                       min_samples_split=10, n_estimators=1000,
+                       random_state=42)
+
+Accuracy: 0.9921896040937247
+
+Classification Report:
+              precision    recall  f1-score   support
+
+           0       1.00      0.99      0.99     15411
+           1       0.98      1.00      0.99     14293
+
+    accuracy                           0.99     29704
+   macro avg       0.99      0.99      0.99     29704
+weighted avg       0.99      0.99      0.99     29704
+
+Training set class distribution:
+binary_label
+0    61643
+1    57170
+Name: count, dtype: int64
+
+Test set class distribution:
+binary_label
+0    15411
+1    14293
+Name: count, dtype: int64
+

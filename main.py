@@ -1,280 +1,337 @@
-import pandas as pd
-import numpy as np
-from sklearn.preprocessing import StandardScaler, OneHotEncoder, LabelEncoder
-from sklearn.model_selection import train_test_split
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.compose import ColumnTransformer
-from sklearn.pipeline import Pipeline
-from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
-from sklearn.utils import shuffle
-import matplotlib.pyplot as plt
-from whitepossum import model as wpModel
-import seaborn as sns
+import re
+from typing import Dict, List, Tuple, Optional
 
-# -------------------------
-# LOAD DATA
-# -------------------------
-
-column_names = [
-    "duration","protocol_type","service","flag","src_bytes","dst_bytes","land",
-    "wrong_fragment","urgent","hot","num_failed_logins","logged_in","num_compromised",
-    "root_shell","su_attempted","num_root","num_file_creations","num_shells",
-    "num_access_files","num_outbound_cmds","is_host_login","is_guest_login",
-    "count","srv_count","serror_rate","srv_serror_rate","rerror_rate","srv_rerror_rate",
-    "same_srv_rate","diff_srv_rate","srv_diff_host_rate","dst_host_count",
-    "dst_host_srv_count","dst_host_same_srv_rate","dst_host_diff_srv_rate",
-    "dst_host_same_src_port_rate","dst_host_srv_diff_host_rate","dst_host_serror_rate",
-    "dst_host_srv_serror_rate","dst_host_rerror_rate","dst_host_srv_rerror_rate",
-    "label"
-]
-
-train_df = pd.read_csv("nsl-kdd/KDDTrain+.txt", names=column_names)
-test_df = pd.read_csv("nsl-kdd/KDDTest+.txt", names=column_names)
-
-full_df = pd.concat([train_df, test_df])
-full_df = shuffle(full_df)
-
-from whitepossum import LogisticRegression
-
-import torch
-import torch.nn as nn
-import numpy as np
-import pandas as pd
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler, LabelEncoder
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, classification_report, confusion_matrix
-import matplotlib.pyplot as plt
-import seaborn as sns
-def load_nslkdd_data(train_path, test_path):
-    """Load NSL-KDD dataset."""
-    columns = [
-        'duration', 'protocol_type', 'service', 'flag', 'src_bytes', 'dst_bytes',
-        'land', 'wrong_fragment', 'urgent', 'hot', 'num_failed_logins', 'logged_in',
-        'num_compromised', 'root_shell', 'su_attempted', 'num_root', 'num_file_creations',
-        'num_shells', 'num_access_files', 'num_outbound_cmds', 'is_host_login',
-        'is_guest_login', 'count', 'srv_count', 'serror_rate', 'srv_serror_rate',
-        'rerror_rate', 'srv_rerror_rate', 'same_srv_rate', 'diff_srv_rate',
-        'srv_diff_host_rate', 'dst_host_count', 'dst_host_srv_count',
-        'dst_host_same_srv_rate', 'dst_host_diff_srv_rate', 'dst_host_same_src_port_rate',
-        'dst_host_srv_diff_host_rate', 'dst_host_serror_rate', 'dst_host_srv_serror_rate',
-        'dst_host_rerror_rate', 'dst_host_srv_rerror_rate', 'attack_type', 'difficulty'
-    ]
-
-    train_df = pd.read_csv(train_path, names=columns)
-    test_df = pd.read_csv(test_path, names=columns)
-
-    print(f"Training samples: {len(train_df)}")
-    print(f"Test samples: {len(test_df)}")
-
-    return train_df, test_df
-
-
-def preprocess_data(train_df, test_df):
-    """Preprocess NSL-KDD data."""
-    # Create binary labels
-    train_df['label'] = (train_df['attack_type'] != 'normal').astype(int)
-    test_df['label'] = (test_df['attack_type'] != 'normal').astype(int)
-
-    # Encode categorical features
-    categorical_cols = ['protocol_type', 'service', 'flag']
-    combined_df = pd.concat([train_df, test_df], axis=0)
-
-    for col in categorical_cols:
-        le = LabelEncoder()
-        combined_df[col] = le.fit_transform(combined_df[col].astype(str))
-
-    train_df_encoded = combined_df.iloc[:len(train_df)].copy()
-    test_df_encoded = combined_df.iloc[len(train_df):].copy()
-
-    # Separate features and labels
-    drop_cols = ['attack_type', 'difficulty', 'label']
-    X_train = train_df_encoded.drop(drop_cols, axis=1).values.astype(np.float32)
-    y_train = train_df['label'].values.astype(np.float32)
-    X_test = test_df_encoded.drop(drop_cols, axis=1).values.astype(np.float32)
-    y_test = test_df['label'].values.astype(np.float32)
-
-    # Handle any NaN/Inf before scaling
-    X_train = np.nan_to_num(X_train, nan=0.0, posinf=1e6, neginf=-1e6)
-    X_test = np.nan_to_num(X_test, nan=0.0, posinf=1e6, neginf=-1e6)
-
-    # Standardize
-    scaler = StandardScaler()
-    X_train = scaler.fit_transform(X_train)
-    X_test = scaler.transform(X_test)
-
-    # Final safety check
-    X_train = np.nan_to_num(X_train, nan=0.0)
-    X_test = np.nan_to_num(X_test, nan=0.0)
-
-    print(f"\nFeatures: {X_train.shape[1]}")
-    print(f"Training samples: {X_train.shape[0]}")
-    print(f"Test samples: {X_test.shape[0]}")
-
-    return X_train, X_test, y_train, y_test
-
-
-def evaluate_model(model, X_test, y_test):
-    """Evaluate model."""
-    y_pred = model.predict(X_test)
-    y_proba = model.predict_proba(X_test)
-
-    # Check predictions
-    unique, counts = np.unique(y_pred, return_counts=True)
-    print("\nPrediction Distribution:")
-    for u, c in zip(unique, counts):
-        label = 'Normal' if u == 0 else 'Attack'
-        print(f"  {label}: {c} ({c/len(y_pred)*100:.1f}%)")
-
-    # Calculate metrics
-    accuracy = accuracy_score(y_test, y_pred)
-    precision = precision_score(y_test, y_pred, zero_division=0)
-    recall = recall_score(y_test, y_pred, zero_division=0)
-    f1 = f1_score(y_test, y_pred, zero_division=0)
-
-    print("\n" + "="*50)
-    print("MODEL EVALUATION RESULTS")
-    print("="*50)
-    print(f"Accuracy:  {accuracy:.4f}")
-    print(f"Precision: {precision:.4f}")
-    print(f"Recall:    {recall:.4f}")
-    print(f"F1-Score:  {f1:.4f}")
-    print("="*50)
-
-    # Confusion matrix
-    cm = confusion_matrix(y_test, y_pred)
-    print("\nConfusion Matrix:")
-    print(cm)
-
-    # Classification report
-    print("\nClassification Report:")
-    print(classification_report(y_test, y_pred, target_names=['Normal', 'Attack'], zero_division=0))
-
-    # Plot
-    plt.figure(figsize=(8, 6))
-    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
-                xticklabels=['Normal', 'Attack'],
-                yticklabels=['Normal', 'Attack'])
-    plt.xlabel('Predicted')
-    plt.ylabel('Actual')
-    plt.title('Confusion Matrix')
-    plt.show()
-
-    return {
-        'accuracy': accuracy,
-        'precision': precision,
-        'recall': recall,
-        'f1': f1
-    }
-
-
-print("="*70)
-print("LOGISTIC REGRESSION FOR NETWORK INTRUSION DETECTION")
-print("Dataset: NSL-KDD")
-print("="*70)
-
-# Load data
-print("\n[1/4] Loading NSL-KDD dataset...")
-train_df, test_df = load_nslkdd_data('KDDTrain+.txt', 'KDDTest+.txt')
-
-# Preprocess
-print("\n[2/4] Preprocessing data...")
-X_train, X_test, y_train, y_test = preprocess_data(train_df, test_df)
-
-# Split for validation
-X_train_split, X_val, y_train_split, y_val = train_test_split(
-X_train, y_train, test_size=0.2, random_state=42, stratify=y_train
-)
-
-print(f"\nClass distribution (training):")
-print(f"  Normal: {(y_train_split==0).sum()}")
-print(f"  Attack: {(y_train_split==1).sum()}")
-
-# Train
-print("\n[3/4] Training Logistic Regression model...")
-model = LogisticRegression(
-n_features=X_train.shape[1],
-learning_rate=0.01,
-n_epochs=100,
-batch_size=256
-)
-
-model.fit(X_train_split, y_train_split, X_val, y_val)
-
-# Plot
-model.plot_training_history()
-
-# Evaluate
-print("\n[4/4] Evaluating model on test set...")
-metrics = evaluate_model(model, X_test, y_test)
-
-print("\n" + "="*70)
-print("TRAINING COMPLETE!")
-print("="*70)
-
-full_df["binary_label"] = full_df["label"].apply(lambda x: "normal" if x == "normal" else "attack")
-
-train_size = len(train_df)
-train_df = full_df.iloc[:train_size]
-test_df  = full_df.iloc[train_size:]
-
-X_train = train_df.drop(["label", "binary_label"], axis=1)
-y_train = train_df["binary_label"]
-
-X_test = test_df.drop(["label", "binary_label"], axis=1)
-y_test = test_df["binary_label"]
-
-# -------------------------
-# FIX: FORCE NUMERIC COLUMNS TO FLOAT
-# -------------------------
-
-categorical_cols = ["protocol_type", "service", "flag"]
-numeric_cols = [c for c in X_train.columns if c not in categorical_cols]
-
-for col in numeric_cols:
-    le = LabelEncoder()
-    if X_train[col].dtype == type(object):
-        X_train[col] = le.fit_transform(X_train[col])
-    if X_test[col].dtype == type(object):
-        X_test[col] = le.fit_transform(X_test[col])
+class MLOutputToLatex:
+    """Convert machine learning model output text to LaTeX tables matching IEEE format."""
+    
+    def __init__(self, text: str):
+        self.text = text
+        self.latex_output = []
         
-# -------------------------
-# PREPROCESSING PIPELINE
-# -------------------------
+    def extract_model_params(self) -> Dict[str, str]:
+        """Extract model parameters from the text."""
+        params = {}
+        
+        # Find RandomForestClassifier parameters
+        pattern = r'RandomForestClassifier\((.*?)\)'
+        match = re.search(pattern, self.text, re.DOTALL)
+        
+        if match:
+            params_str = match.group(1)
+            # Parse individual parameters
+            param_pairs = re.findall(r'(\w+)=([^,\)]+)', params_str)
+            for key, value in param_pairs:
+                params[key.strip()] = value.strip().strip("'\"")
+        
+        return params
+    
+    def extract_accuracy(self) -> float:
+        """Extract accuracy score."""
+        match = re.search(r'Accuracy:\s*([\d.]+)', self.text)
+        return float(match.group(1)) if match else 0.0
+    
+    def extract_classification_report(self) -> List[Dict]:
+        """Extract classification report data."""
+        lines = self.text.split('\n')
+        report_data = []
+        
+        in_report = False
+        for line in lines:
+            if 'precision' in line and 'recall' in line:
+                in_report = True
+                continue
+            
+            if in_report and line.strip():
+                # Parse data lines (0, 1, accuracy, macro avg, weighted avg)
+                parts = line.split()
+                if len(parts) >= 4:
+                    # Check if first part is a class label or average type
+                    if parts[0] in ['0', '1']:
+                        report_data.append({
+                            'class': parts[0],
+                            'precision': parts[1],
+                            'recall': parts[2],
+                            'f1': parts[3],
+                            'support': parts[4] if len(parts) > 4 else ''
+                        })
+                    elif parts[0] == 'accuracy':
+                        report_data.append({
+                            'class': 'accuracy',
+                            'precision': '',
+                            'recall': '',
+                            'f1': parts[1],
+                            'support': parts[2] if len(parts) > 2 else ''
+                        })
+                    elif len(parts) >= 5 and parts[0] in ['macro', 'weighted']:
+                        report_data.append({
+                            'class': f"{parts[0]} {parts[1]}",
+                            'precision': parts[2],
+                            'recall': parts[3],
+                            'f1': parts[4],
+                            'support': parts[5] if len(parts) > 5 else ''
+                        })
+        
+        return report_data
+    
+    def extract_class_distribution(self) -> Tuple[Dict, Dict]:
+        """Extract training and test set class distributions."""
+        train_dist = {}
+        test_dist = {}
+        
+        # Extract training distribution - try multiple patterns
+        # Pattern 1: 0 first, then 1
+        train_match = re.search(r'Training set class distribution:.*?0\s+(\d+).*?1\s+(\d+)', 
+                                self.text, re.DOTALL)
+        if train_match:
+            train_dist = {'0': train_match.group(1), '1': train_match.group(2)}
+        else:
+            # Pattern 2: 1 first, then 0
+            train_match = re.search(r'Training set class distribution:.*?1\s+(\d+).*?0\s+(\d+)', 
+                                    self.text, re.DOTALL)
+            if train_match:
+                train_dist = {'1': train_match.group(1), '0': train_match.group(2)}
+        
+        # Extract test distribution - try multiple patterns
+        # Pattern 1: 1 first, then 0
+        test_match = re.search(r'Test set class distribution:.*?1\s+(\d+).*?0\s+(\d+)', 
+                               self.text, re.DOTALL)
+        if test_match:
+            test_dist = {'1': test_match.group(1), '0': test_match.group(2)}
+        else:
+            # Pattern 2: 0 first, then 1
+            test_match = re.search(r'Test set class distribution:.*?0\s+(\d+).*?1\s+(\d+)', 
+                                   self.text, re.DOTALL)
+            if test_match:
+                test_dist = {'0': test_match.group(1), '1': test_match.group(2)}
+        
+        # Debug: print what was found
+        if not train_dist or not test_dist:
+            # Try a more flexible pattern that captures everything
+            train_section = re.search(r'Training set class distribution:(.*?)(?=Test set|$)', 
+                                     self.text, re.DOTALL)
+            test_section = re.search(r'Test set class distribution:(.*?)(?=\n\n|$)', 
+                                    self.text, re.DOTALL)
+            
+            if train_section:
+                # Extract all number pairs
+                numbers = re.findall(r'[01]\s+(\d+)', train_section.group(1))
+                labels = re.findall(r'([01])\s+\d+', train_section.group(1))
+                if len(numbers) >= 2 and len(labels) >= 2:
+                    train_dist = {labels[0]: numbers[0], labels[1]: numbers[1]}
+            
+            if test_section:
+                # Extract all number pairs
+                numbers = re.findall(r'[01]\s+(\d+)', test_section.group(1))
+                labels = re.findall(r'([01])\s+\d+', test_section.group(1))
+                if len(numbers) >= 2 and len(labels) >= 2:
+                    test_dist = {labels[0]: numbers[0], labels[1]: numbers[1]}
+        
+        return train_dist, test_dist
+    
+    def generate_params_table(self, params: Dict[str, str], 
+                             param_order: Optional[List[str]] = None) -> str:
+        """Generate LaTeX table for model parameters.
+        
+        Args:
+            params: Dictionary of parameters
+            param_order: Optional list specifying the order of parameters
+        """
+        # Default order if not specified
+        if param_order is None:
+            param_order = ['class_weight', 'min_samples_leaf', 'min_samples_split', 
+                          'n_estimators', 'random_state']
+        
+        latex = r"""\begin{table}[h!]
+	\centering
+	\caption{Random Forest Hyperparameters}
+	\begin{tabular}{ll}
+		\hline
+		\textbf{Parameter} & \textbf{Value} \\
+		\hline
+"""
+        
+        # Add parameters in specified order
+        for key in param_order:
+            if key in params:
+                latex += f"\t\t{key.replace('_', r'\_')} & {params[key]} \\\\\n"
+        
+        # Add any remaining parameters not in the order list
+        for key, value in params.items():
+            if key not in param_order:
+                latex += f"\t\t{key.replace('_', r'\_')} & {value} \\\\\n"
+        
+        latex += r"""		\hline
+	\end{tabular}
+\end{table}
+"""
+        return latex
+    
+    def generate_performance_table(self, report_data: List[Dict], accuracy: float) -> str:
+        """Generate LaTeX table for classification performance."""
+        latex = r"""\begin{table}[h!]
+	\centering
+	\caption{Random Forest Classification Performance}
+	\begin{tabular}{lcccc}
+		\hline
+		\textbf{Class} & \textbf{Precision} & \textbf{Recall} & \textbf{F1} & \textbf{Support} \\
+		\hline
+"""
+        
+        for row in report_data:
+            if row['class'] == '0':
+                latex += f"\t\tNormal (0) & {row['precision']} & {row['recall']} & {row['f1']} & {row['support']} \\\\\n"
+            elif row['class'] == '1':
+                latex += f"\t\tAttack (1) & {row['precision']} & {row['recall']} & {row['f1']} & {row['support']} \\\\\n"
+        
+        latex += "\t\t\\hline\n"
+        latex += f"\t\t\\textbf{{Accuracy}} & \\multicolumn{{4}}{{c}}{{{accuracy:.4f}}} \\\\\n"
+        
+        for row in report_data:
+            if 'macro' in row['class'].lower():
+                latex += f"\t\tMacro Avg & {row['precision']} & {row['recall']} & {row['f1']} & {row['support']} \\\\\n"
+            elif 'weighted' in row['class'].lower():
+                latex += f"\t\tWeighted Avg & {row['precision']} & {row['recall']} & {row['f1']} & {row['support']} \\\\\n"
+        
+        latex += r"""		\hline
+	\end{tabular}
+\end{table}
+"""
+        return latex
+    
+    def generate_distribution_table(self, train_dist: Dict, test_dist: Dict) -> str:
+        """Generate LaTeX table for class distribution."""
+        latex = r"""\begin{table}[h!]
+	\centering
+	\caption{Training and Test Set Class Distribution}
+	\begin{tabular}{lcc}
+		\hline
+		\textbf{Class} & \textbf{Train Count} & \textbf{Test Count} \\
+		\hline
+"""
+        
+        for class_label in ['0', '1']:
+            train_count = train_dist.get(class_label, '0')
+            test_count = test_dist.get(class_label, '0')
+            class_name = "Normal" if class_label == '0' else "Attack"
+            latex += f"\t\t{class_name} ({class_label}) & {train_count} & {test_count} \\\\\n"
+        
+        latex += r"""		\hline
+	\end{tabular}
+\end{table}
+"""
+        return latex
+    
+    def generate_confusion_matrix_figure(self, n_estimators: int = 600, 
+                                        min_samples_leaf: int = 5,
+                                        random_state: int = 52,
+                                        combined: bool = False,
+                                        figure_num: int = 1,
+                                        float_position: str = 'h!') -> str:
+        """Generate LaTeX figure reference for confusion matrix.
+        
+        Args:
+            n_estimators: Number of estimators used
+            min_samples_leaf: Minimum samples per leaf
+            random_state: Random state used
+            combined: Whether datasets were combined
+            figure_num: Figure number for label
+            float_position: LaTeX float position (default: 'h!' for here, strongly)
+                          Options: 'h!' (here strongly), 'H' (HERE absolutely - requires float package),
+                                  'htbp' (here, top, bottom, page), '!h' (override LaTeX float rules)
+        """
+        combined_str = "True" if combined else "False"
+        latex = f"""
+\\begin{{figure}}[{float_position}]
+	\\centering
+	\\includegraphics[width=0.45\\textwidth]{{rf_confusion_matrix-{n_estimators}-{min_samples_leaf}-{random_state}-{combined_str}.png}}
+	\\caption{{Confusion matrix for the Random Forest model ({n_estimators} estimators, min\\_samples\\_leaf = {min_samples_leaf}, random\\_state = {random_state}, datasets {"" if combined else "not "}combined).}}
+	\\label{{fig:rf_confusion_matrix_{figure_num}}}
+\\end{{figure}}
+"""
+        return latex
+    
+    def convert(self, param_order: Optional[List[str]] = None,
+                include_figure: bool = True,
+                figure_params: Optional[Dict] = None,
+                datasetsCombined: bool = False) -> str:
+        """Convert the entire text to LaTeX.
+        
+        Args:
+            param_order: Optional list specifying the order of parameters
+            include_figure: Whether to include confusion matrix figure reference
+            figure_params: Optional dict with figure parameters (n_estimators, min_samples_leaf, etc.)
+        """
+        # Extract data
+        params = self.extract_model_params()
+        accuracy = self.extract_accuracy()
+        report_data = self.extract_classification_report()
+        train_dist, test_dist = self.extract_class_distribution()
+        
+        # Generate LaTeX
+        latex_output = []
+        
+        if params:
+            latex_output.append(self.generate_params_table(params, param_order))
+        
+        if report_data and accuracy:
+            latex_output.append(self.generate_performance_table(report_data, accuracy))
+        
+        if train_dist and test_dist:
+            latex_output.append(self.generate_distribution_table(train_dist, test_dist))
+        
+        if include_figure:
+            fig_params = figure_params or {}
+            # Try to extract from params if not provided
+            if 'n_estimators' not in fig_params and 'n_estimators' in params:
+                fig_params['n_estimators'] = int(params['n_estimators'])
+            if 'min_samples_leaf' not in fig_params and 'min_samples_leaf' in params:
+                fig_params['min_samples_leaf'] = int(params['min_samples_leaf'])
+            if 'random_state' not in fig_params and 'random_state' in params:
+                fig_params['random_state'] = int(params['random_state'])
+            
+            latex_output.append(self.generate_confusion_matrix_figure(**fig_params))
+        
+        return '\n'.join(latex_output)
 
-preprocess = ColumnTransformer(
-    transformers=[
-        ("cat", OneHotEncoder(handle_unknown="ignore"), categorical_cols),
-        ("num", StandardScaler(), numeric_cols)
-    ]
-)
 
-model = Pipeline([
-    ("preprocess", preprocess),
-    ("rf", RandomForestClassifier(n_estimators=20000, random_state=46, class_weight="balanced"))
-])
+import os
+if __name__ == "__main__":
+    input_text = """Evaluating Random Forest model on test set...
+Used Random Forest Classifier with the following parameters:
+RandomForestClassifier(class_weight='balanced', min_samples_leaf=5,
+                       min_samples_split=10, n_estimators=600, random_state=52)
 
-# -------------------------
-# TRAIN + TEST
-# -------------------------
+Accuracy: 0.8742015613910575
 
-model.fit(X_train, y_train)
-y_pred = model.predict(X_test)
+Classification Report:
+              precision    recall  f1-score   support
 
-print("Accuracy:", accuracy_score(y_test, y_pred))
-print("\nClassification Report:")
-print(classification_report(y_test, y_pred))
+           0       0.80      0.95      0.87      9711
+           1       0.96      0.82      0.88     12833
 
-# -------------------------
-# CONFUSION MATRIX
-# -------------------------
+    accuracy                           0.87     22544
+   macro avg       0.88      0.88      0.87     22544
+weighted avg       0.89      0.87      0.87     22544
 
-cm = confusion_matrix(y_test, y_pred, labels=["normal", "attack"])
-plt.figure(figsize=(6,5))
-sns.heatmap(cm, annot=True, fmt="d", cmap="Blues")
-plt.title("Random Forest Confusion Matrix")
-plt.xlabel("Predicted")
-plt.ylabel("Actual")
-plt.show()
+Training set class distribution:
+binary_label
+0    67343
+1    58630
+Name: count, dtype: int64
 
-
-
+Test set class distribution:
+binary_label
+1    12833
+0     9711
+Name: count, dtype: int64
+"""
+for x in os.listdir():
+    if x.endswith(".txt"):
+        # Prints only text file present in My Folder
+        with open(x, "r") as file:
+            converter = MLOutputToLatex(file.read())
+            combined = True if 'True' in x.rstrip(".txt").split("-")[-1] else False
+            param_order = ['n_estimators', 'random_state', 'class_weight', 'min_samples_leaf', 'min_samples_split']
+            latex_output = converter.convert(param_order=param_order, include_figure=True, figure_params={
+                'combined': combined})
+            open(f"{x.rstrip(".txt")}.tex", "w").write(latex_output)
